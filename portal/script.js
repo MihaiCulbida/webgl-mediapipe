@@ -6,7 +6,6 @@ const PORTAL_COLOR = "#00ff66";
 const PINCH_RATIO_THRESHOLD = 0.40;
 const CHARGE_DURATION_MS = 1600;
 const RESET_HOLD_MS = 2000;
-const POP_DURATION_MS = 450;
 
 const FINGER_JOINTS = {
     index:  { tip: 8,  pip: 6  },
@@ -29,8 +28,6 @@ let chargeProgress = 0;
 let chargeReady = false;
 
 let resetHoldStart = 0;
-
-let pop = null;
 
 async function init() {
     const vision = await FilesetResolver.forVisionTasks(
@@ -61,9 +58,8 @@ function loop() {
     const results = handLandmarker.detectForVideo(video, now);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (!pop) handleReset(results, now);
+    handleReset(results, now);
     renderMode(results, now);
-    if (pop) renderPop(now);
 
     requestAnimationFrame(loop);
 }
@@ -103,9 +99,7 @@ function renderMode(results, now) {
 
             if (chargeReady) {
 
-                const center = averageHandsCenter(handA, handB);
                 mode = (mode === 'fullscreen') ? 'normal' : 'fullscreen';
-                startPop(center);
                 resetCharge();
             } else {
                 resetCharge();
@@ -123,41 +117,6 @@ function drawFullscreenBackground() {
     ctx.filter = "grayscale(1) contrast(1.15)";
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     ctx.filter = "none";
-}
-
-function startPop(center) {
-    const PARTICLE_COUNT = 12;
-    const particles = Array.from({ length: PARTICLE_COUNT }, (_, i) => ({
-        angle: (i / PARTICLE_COUNT) * Math.PI * 2 + (Math.random() * 0.4 - 0.2),
-        distance: 70 + Math.random() * 50
-    }));
-    pop = { center, startTime: performance.now(), particles };
-}
-
-function renderPop(now) {
-    const progress = clamp((now - pop.startTime) / POP_DURATION_MS, 0, 1);
-    const easeOut = 1 - Math.pow(1 - progress, 3);
-    const fade = 1 - progress;
-
-    if (progress < 0.25) {
-        const flashAlpha = (1 - progress / 0.25) * 0.45;
-        ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    pop.particles.forEach(part => {
-        const d = easeOut * part.distance;
-        const x = pop.center.x + Math.cos(part.angle) * d;
-        const y = pop.center.y + Math.sin(part.angle) * d;
-        const size = 5 * fade;
-        if (size <= 0) return;
-        ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(0,255,102,${fade})`;
-        ctx.fill();
-    });
-
-    if (progress >= 1) pop = null;
 }
 
 function handleReset(results, now) {
@@ -233,12 +192,6 @@ function buildQuad(results) {
     ];
 }
 
-function averageHandsCenter(handA, handB) {
-    const pA = midpoint(toCanvasPoint(handA[FINGER_TIP.thumb]), toCanvasPoint(handA[FINGER_TIP.index]));
-    const pB = midpoint(toCanvasPoint(handB[FINGER_TIP.thumb]), toCanvasPoint(handB[FINGER_TIP.index]));
-    return midpoint(pA, pB);
-}
-
 function drawPortal(points) {
     ctx.save();
     tracePolygon(points);
@@ -305,8 +258,9 @@ function drawChargeBar(pinchHand, progress) {
     ctx.fillStyle = "rgba(0,255,102,0.15)";
     ctx.fillRect(x, y, width, height);
 
+    const filled = width * progress;
     ctx.fillStyle = PORTAL_COLOR;
-    ctx.fillRect(x, y, width * progress, height);
+    ctx.fillRect(x + width - filled, y, filled, height);
 
     ctx.lineWidth = 2;
     ctx.strokeStyle = PORTAL_COLOR;
