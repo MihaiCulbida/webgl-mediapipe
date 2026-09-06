@@ -3,9 +3,17 @@ import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@m
 const FINGER_TIP = { thumb: 4, index: 8 };
 const PORTAL_COLOR = "#00ff66";
 
+const PORTAL_FILTERS = [
+    "grayscale(1) contrast(1.15)",                                   // 1. alb-negru
+    "saturate(3.2) hue-rotate(260deg) contrast(1.3) brightness(1.1)", // 2. violet neon
+    "sepia(0.6) saturate(2.2) hue-rotate(-15deg) brightness(1.15) contrast(1.1)", // 3. galbui
+    "invert(1)"                                                      // 4. invert
+];
+
 const PINCH_RATIO_THRESHOLD = 0.40;
 const CHARGE_DURATION_MS = 1600;
 const RESET_HOLD_MS = 2000;
+const FILTER_HOLD_DURATION_MS = 1500;
 
 const FINGER_JOINTS = {
     index:  { tip: 8,  pip: 6  },
@@ -28,6 +36,11 @@ let chargeProgress = 0;
 let chargeReady = false;
 
 let resetHoldStart = 0;
+
+let filterIndex = 0;
+let peaceHoldStart = 0;
+let filterSwitched = false;
+let filterConfirm = null;
 
 async function init() {
     const vision = await FilesetResolver.forVisionTasks(
@@ -59,7 +72,9 @@ function loop() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     handleReset(results, now);
+    handleFilterCycle(results, now);
     renderMode(results, now);
+    drawFilterConfirm();
 
     requestAnimationFrame(loop);
 }
@@ -114,7 +129,7 @@ function renderMode(results, now) {
 }
 
 function drawFullscreenBackground() {
-    ctx.filter = "grayscale(1) contrast(1.15)";
+    ctx.filter = PORTAL_FILTERS[filterIndex];
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     ctx.filter = "none";
 }
@@ -168,6 +183,63 @@ function isHandOpen(landmarks) {
     return extended >= 3;
 }
 
+function isPeaceSign(landmarks) {
+    const wrist = landmarks[0];
+    const isExtended = ({ tip, pip }) => dist(wrist, landmarks[tip]) > dist(wrist, landmarks[pip]) * 1.1;
+    const isCurled = ({ tip, pip }) => dist(wrist, landmarks[tip]) < dist(wrist, landmarks[pip]) * 1.1;
+
+    return isExtended(FINGER_JOINTS.index) &&
+        isExtended(FINGER_JOINTS.middle) &&
+        isCurled(FINGER_JOINTS.ring) &&
+        isCurled(FINGER_JOINTS.pinky);
+}
+
+function handleFilterCycle(results, now) {
+    const landmarks = results.landmarks || [];
+    const peaceHand = landmarks.find(isPeaceSign);
+
+    if (peaceHand) {
+        if (peaceHoldStart === 0) peaceHoldStart = now;
+
+        const progress = clamp((now - peaceHoldStart) / FILTER_HOLD_DURATION_MS, 0, 1);
+        const point = midpoint(
+            toCanvasPoint(peaceHand[FINGER_JOINTS.index.tip]),
+            toCanvasPoint(peaceHand[FINGER_JOINTS.middle.tip])
+        );
+        filterConfirm = { point, progress };
+
+        if (progress >= 1 && !filterSwitched) {
+            filterIndex = (filterIndex + 1) % PORTAL_FILTERS.length;
+            filterSwitched = true;
+        }
+    } else {
+        peaceHoldStart = 0;
+        filterSwitched = false;
+        filterConfirm = null;
+    }
+}
+
+function drawFilterConfirm() {
+    if (!filterConfirm) return;
+
+    const { point, progress } = filterConfirm;
+
+    const width = 90, height = 14;
+    const x = point.x - width / 2;
+    const y = point.y - 55 - height / 2;
+
+    ctx.fillStyle = "rgba(0,255,102,0.15)";
+    ctx.fillRect(x, y, width, height);
+
+    const filled = width * progress;
+    ctx.fillStyle = PORTAL_COLOR;
+    ctx.fillRect(x + width - filled, y, filled, height);
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = PORTAL_COLOR;
+    ctx.strokeRect(x, y, width, height);
+}
+
 function buildQuad(results) {
     const landmarks = results.landmarks;
     if (!landmarks || landmarks.length < 2) return null;
@@ -198,7 +270,7 @@ function drawPortal(points) {
 
     ctx.save();
     ctx.clip();
-    ctx.filter = "grayscale(1) contrast(1.15)";
+    ctx.filter = PORTAL_FILTERS[filterIndex];
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     ctx.filter = "none";
     ctx.restore();
