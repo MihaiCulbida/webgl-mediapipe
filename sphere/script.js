@@ -46,7 +46,7 @@ function generateSphere() {
 const SPHERE = generateSphere();
 
 function generateTesseract() {
-  const outerScale = 1;
+  const outerScale = 0.75;
   const innerScale = 0.25;
 
   const baseVertices = [
