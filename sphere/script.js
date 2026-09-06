@@ -45,12 +45,54 @@ function generateSphere() {
 
 const SPHERE = generateSphere();
 
+function generateTesseract() {
+  const outerScale = 1;
+  const innerScale = 0.25;
+
+  const baseVertices = [
+    [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+    [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
+  ];
+
+  const cubeEdges = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7]
+  ];
+
+  const vertices = [
+    ...baseVertices.map(v => v.map(c => c * outerScale)),
+    ...baseVertices.map(v => v.map(c => c * innerScale))
+  ];
+
+  const edges = [
+    ...cubeEdges,
+    ...cubeEdges.map(([a, b]) => [a + 8, b + 8]),
+    ...baseVertices.map((_, i) => [i, i + 8])
+  ];
+
+  return { vertices, edges };
+}
+
+const TESSERACT = generateTesseract();
+
+const SHAPES = {
+  sphere: { geometry: SPHERE, color: '#00ffff', shadow: 'rgba(0, 255, 255, 0.8)' },
+  tesseract: { geometry: TESSERACT, color: '#00ffff', shadow: 'rgba(0, 255, 255, 0.8)' }
+};
+
+// Ciclul de forme la palma deschisă: sferă -> cub -> ascuns -> sferă -> ...
+const OBJECT_CYCLE = ['sphere', 'tesseract', null];
+
 const GESTURE_HOLD_MS = 1000;
 const GRAB_RADIUS_MULT = 2.2;
 const ROTATION_SMOOTHING = 0.25;
 
+let cycleIndex = -1;
+
 const objectState = {
   active: false,
+  type: 'sphere',
   x: 0,
   y: 0,
   size: 90,
@@ -103,16 +145,17 @@ function isPinching(landmarks) {
   return dist < 35;
 }
 
-function isVSign(landmarks) {
+function isHandOpen(landmarks) {
   const wrist = landmarks[0];
   const handSize = distNorm(wrist, landmarks[9]) || 0.001;
 
   const indexExtended = distNorm(landmarks[8], wrist) > distNorm(landmarks[5], wrist) + handSize * 0.15;
   const middleExtended = distNorm(landmarks[12], wrist) > distNorm(landmarks[9], wrist) + handSize * 0.15;
-  const ringFolded = distNorm(landmarks[16], wrist) < distNorm(landmarks[13], wrist) + handSize * 0.1;
-  const pinkyFolded = distNorm(landmarks[20], wrist) < distNorm(landmarks[17], wrist) + handSize * 0.1;
+  const ringExtended = distNorm(landmarks[16], wrist) > distNorm(landmarks[13], wrist) + handSize * 0.15;
+  const pinkyExtended = distNorm(landmarks[20], wrist) > distNorm(landmarks[17], wrist) + handSize * 0.15;
 
-  return indexExtended && middleExtended && ringFolded && pinkyFolded;
+  const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
+  return extendedCount >= 3;
 }
 
 function computeHandRotation(landmarks) {
@@ -129,7 +172,7 @@ function computeHandRotation(landmarks) {
   const upZ = (middleMcp.z || 0) - (wrist.z || 0);
   const rotationX = Math.atan2(upZ, upY);
 
-  return { rotationY };
+  return { rotationY: -rotationY };
 }
 
 function getHandLabel(handednesses, i) {
@@ -138,7 +181,7 @@ function getHandLabel(handednesses, i) {
 
 function getGestureState(label) {
   if (!gestureState[label]) {
-    gestureState[label] = { open: false, openStart: 0, triggered: false, pinch: false };
+    gestureState[label] = { palmOpen: false, palmOpenStart: 0, triggered: false, pinch: false };
   }
   return gestureState[label];
 }
@@ -162,16 +205,17 @@ function project(vertex, cx, cy, size, ry) {
   };
 }
 
-function drawSphere(cx, cy, size, ry, grabbed) {
-  const projected = SPHERE.vertices.map(v => project(v, cx, cy, size, ry));
+function drawObject(cx, cy, size, ry, grabbed, type) {
+  const shape = SHAPES[type] || SHAPES.sphere;
+  const projected = shape.geometry.vertices.map(v => project(v, cx, cy, size, ry));
 
-  const color = grabbed ? '#ffcc00' : '#00ffff';
+  const color = grabbed ? '#ffcc00' : shape.color;
   ctx.strokeStyle = color;
-  ctx.shadowColor = grabbed ? 'rgba(255, 204, 0, 0.8)' : 'rgba(0, 255, 255, 0.8)';
+  ctx.shadowColor = grabbed ? 'rgba(255, 204, 0, 0.8)' : shape.shadow;
   ctx.lineWidth = 1.2;
   ctx.shadowBlur = 8;
 
-  for (const [a, b] of SPHERE.edges) {
+  for (const [a, b] of shape.geometry.edges) {
     ctx.beginPath();
     ctx.moveTo(projected[a].x, projected[a].y);
     ctx.lineTo(projected[b].x, projected[b].y);
@@ -181,33 +225,41 @@ function drawSphere(cx, cy, size, ry, grabbed) {
   ctx.shadowBlur = 0;
 }
 
-function toggleObject(landmarks) {
+function advanceObjectCycle(landmarks) {
+  cycleIndex = (cycleIndex + 1) % OBJECT_CYCLE.length;
+  const next = OBJECT_CYCLE[cycleIndex];
+
+  if (next === null) {
+    objectState.active = false;
+    objectState.grabbedBy = null;
+    return;
+  }
+
   if (!objectState.active) {
-    objectState.active = true;
     objectState.x = ((landmarks[8].x + landmarks[12].x) / 2) * canvas.width;
     objectState.y = ((landmarks[8].y + landmarks[12].y) / 2) * canvas.height;
     objectState.size = 90;
-  } else {
-    objectState.active = false;
-    objectState.grabbedBy = null;
   }
+
+  objectState.type = next;
+  objectState.active = true;
 }
 
 function updateHandGesture(landmarks, label, timestamp) {
   const state = getGestureState(label);
 
-  const vSign = isVSign(landmarks);
-  if (vSign) {
-    if (!state.open) {
-      state.open = true;
-      state.openStart = timestamp;
+  const palmOpen = isHandOpen(landmarks);
+  if (palmOpen) {
+    if (!state.palmOpen) {
+      state.palmOpen = true;
+      state.palmOpenStart = timestamp;
       state.triggered = false;
-    } else if (!state.triggered && timestamp - state.openStart >= GESTURE_HOLD_MS) {
-      toggleObject(landmarks);
+    } else if (!state.triggered && timestamp - state.palmOpenStart >= GESTURE_HOLD_MS) {
+      advanceObjectCycle(landmarks);
       state.triggered = true;
     }
   } else {
-    state.open = false;
+    state.palmOpen = false;
     state.triggered = false;
   }
 
@@ -228,11 +280,11 @@ function updateHandGesture(landmarks, label, timestamp) {
     if (pinching && objectState.grabbedBy === label) {
       objectState.x = cx + objectState.grabOffsetX;
       objectState.y = cy + objectState.grabOffsetY;
-    
+
       const targetRotation = computeHandRotation(landmarks);
       objectState.rotationY += (targetRotation.rotationY - objectState.rotationY) * ROTATION_SMOOTHING;
     }
-    
+
     if (!pinching && objectState.grabbedBy === label) {
       objectState.grabbedBy = null;
     }
@@ -264,9 +316,9 @@ function detectLoop() {
   }
 
   if (objectState.active) {
-    drawSphere(objectState.x, objectState.y, objectState.size, objectState.rotationY, objectState.grabbedBy !== null);
+    drawObject(objectState.x, objectState.y, objectState.size, objectState.rotationY, objectState.grabbedBy !== null, objectState.type);
   }
-  
+
   requestAnimationFrame(detectLoop);
 }
 
