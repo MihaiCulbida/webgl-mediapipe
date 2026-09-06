@@ -145,7 +145,7 @@ function isPinching(landmarks) {
   return dist < 35;
 }
 
-function isHandOpen(landmarks) {
+function isThreeFingerGesture(landmarks) {
   const wrist = landmarks[0];
   const handSize = distNorm(wrist, landmarks[9]) || 0.001;
 
@@ -155,7 +155,7 @@ function isHandOpen(landmarks) {
   const pinkyExtended = distNorm(landmarks[20], wrist) > distNorm(landmarks[17], wrist) + handSize * 0.15;
 
   const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
-  return extendedCount >= 3;
+  return extendedCount === 3;
 }
 
 function computeHandRotation(landmarks) {
@@ -248,8 +248,8 @@ function advanceObjectCycle(landmarks) {
 function updateHandGesture(landmarks, label, timestamp) {
   const state = getGestureState(label);
 
-  const palmOpen = isHandOpen(landmarks);
-  if (palmOpen) {
+  const threeFingers = isThreeFingerGesture(landmarks);
+  if (threeFingers) {
     if (!state.palmOpen) {
       state.palmOpen = true;
       state.palmOpenStart = timestamp;
