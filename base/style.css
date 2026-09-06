@@ -10,6 +10,7 @@ body {
     position: relative;
     max-width: 90%;
     max-height: 90%;
+    transform: scaleX(-1);
 }
 video, canvas {
     width: 100%;
