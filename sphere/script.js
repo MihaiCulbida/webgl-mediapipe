@@ -180,6 +180,11 @@ const OBJECT_CYCLE = ['sphere', 'tesseract', 'rocket', null];
 const GESTURE_HOLD_MS = 1000;
 const GRAB_RADIUS_MULT = 2.2;
 const ROTATION_SMOOTHING = 0.25;
+const VELOCITY_SMOOTHING = 0.35;
+const THROW_FRICTION = 0.965;
+const MIN_THROW_SPEED = 0.05;
+const THROW_SPIN_FACTOR = 0.01;
+const EDGE_BOUNCE = 0.6;
 
 let cycleIndex = -1;
 
@@ -192,7 +197,9 @@ const objectState = {
   grabbedBy: null,
   grabOffsetX: 0,
   grabOffsetY: 0,
-  rotationY: 0.6
+  rotationY: 0.6,
+  vx: 0,
+  vy: 0
 };
 
 const gestureState = {};
@@ -325,6 +332,8 @@ function advanceObjectCycle(landmarks) {
   if (next === null) {
     objectState.active = false;
     objectState.grabbedBy = null;
+    objectState.vx = 0;
+    objectState.vy = 0;
     return;
   }
 
@@ -332,6 +341,8 @@ function advanceObjectCycle(landmarks) {
     objectState.x = ((landmarks[8].x + landmarks[12].x) / 2) * canvas.width;
     objectState.y = ((landmarks[8].y + landmarks[12].y) / 2) * canvas.height;
     objectState.size = 90;
+    objectState.vx = 0;
+    objectState.vy = 0;
   }
 
   objectState.type = next;
@@ -367,23 +378,77 @@ function updateHandGesture(landmarks, label, timestamp) {
         objectState.grabbedBy = label;
         objectState.grabOffsetX = objectState.x - cx;
         objectState.grabOffsetY = objectState.y - cy;
+        // resetam viteza cand il apucam, ca sa nu "sara" din miscarea veche
+        objectState.vx = 0;
+        objectState.vy = 0;
       }
     }
 
     if (pinching && objectState.grabbedBy === label) {
-      objectState.x = cx + objectState.grabOffsetX;
-      objectState.y = cy + objectState.grabOffsetY;
+      const newX = cx + objectState.grabOffsetX;
+      const newY = cy + objectState.grabOffsetY;
+
+      // calculam viteza instantanee a mainii (px/frame) si o netezim,
+      // asta e viteza cu care va "zbura" obiectul cand dam drumul
+      const instVx = newX - objectState.x;
+      const instVy = newY - objectState.y;
+      objectState.vx += (instVx - objectState.vx) * VELOCITY_SMOOTHING;
+      objectState.vy += (instVy - objectState.vy) * VELOCITY_SMOOTHING;
+
+      objectState.x = newX;
+      objectState.y = newY;
 
       const targetRotation = computeHandRotation(landmarks);
       objectState.rotationY += (targetRotation.rotationY - objectState.rotationY) * ROTATION_SMOOTHING;
     }
 
     if (!pinching && objectState.grabbedBy === label) {
+      // eliberam obiectul - viteza acumulata (objectState.vx/vy) ramane
+      // si va fi aplicata in updateThrowPhysics() ca sa "zboare"/pluteasca
       objectState.grabbedBy = null;
     }
   }
 
   state.pinch = pinching;
+}
+
+function updateThrowPhysics() {
+  if (!objectState.active || objectState.grabbedBy !== null) return;
+
+  const speed = Math.hypot(objectState.vx, objectState.vy);
+  if (speed < MIN_THROW_SPEED) {
+    objectState.vx = 0;
+    objectState.vy = 0;
+    return;
+  }
+
+  objectState.x += objectState.vx;
+  objectState.y += objectState.vy;
+
+  // usoara rotatie din inertie cat timp pluteste, ca sa se simta "viu"
+  objectState.rotationY += objectState.vx * THROW_SPIN_FACTOR;
+
+  // frana treptata - de-aia pluteste un timp in loc sa se opreasca brusc
+  objectState.vx *= THROW_FRICTION;
+  objectState.vy *= THROW_FRICTION;
+
+  // sarim usor de pe marginile canvasului in loc sa disparem din cadru
+  const margin = objectState.size;
+  if (objectState.x < margin) {
+    objectState.x = margin;
+    objectState.vx = Math.abs(objectState.vx) * EDGE_BOUNCE;
+  } else if (objectState.x > canvas.width - margin) {
+    objectState.x = canvas.width - margin;
+    objectState.vx = -Math.abs(objectState.vx) * EDGE_BOUNCE;
+  }
+
+  if (objectState.y < margin) {
+    objectState.y = margin;
+    objectState.vy = Math.abs(objectState.vy) * EDGE_BOUNCE;
+  } else if (objectState.y > canvas.height - margin) {
+    objectState.y = canvas.height - margin;
+    objectState.vy = -Math.abs(objectState.vy) * EDGE_BOUNCE;
+  }
 }
 
 function detectLoop() {
@@ -407,6 +472,8 @@ function detectLoop() {
     const label = getHandLabel(handednesses, i);
     updateHandGesture(landmarks, label, timestamp);
   }
+
+  updateThrowPhysics();
 
   if (objectState.active) {
     drawObject(objectState.x, objectState.y, objectState.size, objectState.rotationY, objectState.grabbedBy !== null, objectState.type);
