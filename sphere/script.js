@@ -378,7 +378,7 @@ function updateHandGesture(landmarks, label, timestamp) {
         objectState.grabbedBy = label;
         objectState.grabOffsetX = objectState.x - cx;
         objectState.grabOffsetY = objectState.y - cy;
-        // resetam viteza cand il apucam, ca sa nu "sara" din miscarea veche
+
         objectState.vx = 0;
         objectState.vy = 0;
       }
@@ -387,9 +387,6 @@ function updateHandGesture(landmarks, label, timestamp) {
     if (pinching && objectState.grabbedBy === label) {
       const newX = cx + objectState.grabOffsetX;
       const newY = cy + objectState.grabOffsetY;
-
-      // calculam viteza instantanee a mainii (px/frame) si o netezim,
-      // asta e viteza cu care va "zbura" obiectul cand dam drumul
       const instVx = newX - objectState.x;
       const instVy = newY - objectState.y;
       objectState.vx += (instVx - objectState.vx) * VELOCITY_SMOOTHING;
@@ -403,8 +400,6 @@ function updateHandGesture(landmarks, label, timestamp) {
     }
 
     if (!pinching && objectState.grabbedBy === label) {
-      // eliberam obiectul - viteza acumulata (objectState.vx/vy) ramane
-      // si va fi aplicata in updateThrowPhysics() ca sa "zboare"/pluteasca
       objectState.grabbedBy = null;
     }
   }
@@ -424,15 +419,12 @@ function updateThrowPhysics() {
 
   objectState.x += objectState.vx;
   objectState.y += objectState.vy;
-
-  // usoara rotatie din inertie cat timp pluteste, ca sa se simta "viu"
   objectState.rotationY += objectState.vx * THROW_SPIN_FACTOR;
-
-  // frana treptata - de-aia pluteste un timp in loc sa se opreasca brusc
   objectState.vx *= THROW_FRICTION;
   objectState.vy *= THROW_FRICTION;
-
-  // sarim usor de pe marginile canvasului in loc sa disparem din cadru
+  objectState.rotationY += objectState.vx * THROW_SPIN_FACTOR;
+  objectState.vx *= THROW_FRICTION;
+  objectState.vy *= THROW_FRICTION;
   const margin = objectState.size;
   if (objectState.x < margin) {
     objectState.x = margin;
