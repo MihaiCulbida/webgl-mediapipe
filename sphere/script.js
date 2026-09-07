@@ -76,13 +76,98 @@ function generateTesseract() {
 
 const TESSERACT = generateTesseract();
 
+function generateRocket() {
+  const vertices = [];
+  const edges = [];
+
+  const bodyStartX = -1.4;
+  const bodyEndX = 0.3;
+  const noseTipX = 1.25;
+  const bodyRadius = 0.35;
+  const segments = 10;
+  const bodyRings = 6;
+
+  const ringXs = [];
+  for (let i = 0; i <= bodyRings; i++) {
+    ringXs.push(bodyStartX + (bodyEndX - bodyStartX) * (i / bodyRings));
+  }
+
+  const ringStartIdx = [];
+  ringXs.forEach(x => {
+    ringStartIdx.push(vertices.length);
+    for (let j = 0; j < segments; j++) {
+      const theta = (j / segments) * Math.PI * 2;
+      vertices.push([x, Math.sin(theta) * bodyRadius, Math.cos(theta) * bodyRadius]);
+    }
+  });
+
+  for (let r = 0; r < ringXs.length; r++) {
+    const start = ringStartIdx[r];
+    for (let j = 0; j < segments; j++) {
+      edges.push([start + j, start + (j + 1) % segments]);
+      if (r < ringXs.length - 1) {
+        edges.push([start + j, start + segments + j]);
+      }
+    }
+  }
+
+  const tipIdx = vertices.length;
+  vertices.push([noseTipX, 0, 0]);
+  const lastRingStart = ringStartIdx[ringStartIdx.length - 1];
+  for (let j = 0; j < segments; j++) {
+    edges.push([lastRingStart + j, tipIdx]);
+  }
+
+  const tailRingX = bodyStartX - 0.3;
+  const tailRingRadius = bodyRadius * 0.85;
+  const tailRingStart = vertices.length;
+  for (let j = 0; j < segments; j++) {
+    const theta = (j / segments) * Math.PI * 2;
+    vertices.push([tailRingX, Math.sin(theta) * tailRingRadius, Math.cos(theta) * tailRingRadius]);
+  }
+  for (let j = 0; j < segments; j++) {
+    edges.push([tailRingStart + j, tailRingStart + (j + 1) % segments]);
+    edges.push([ringStartIdx[0] + j, tailRingStart + j]);
+  }
+
+  const tailIdx = vertices.length;
+  vertices.push([tailRingX - 0.15, 0, 0]);
+  for (let j = 0; j < segments; j++) {
+    edges.push([tailRingStart + j, tailIdx]);
+  }
+
+  const finCount = 4;
+  const finBaseX1 = -1.0 + 0.05;
+  const finBaseX2 = -1.0 - 0.35;
+  const finTipX = -1.0 - 0.05;
+  const finHeight = 0.55;
+  for (let f = 0; f < finCount; f++) {
+    const theta = (f / finCount) * Math.PI * 2;
+    const dirY = Math.sin(theta);
+    const dirZ = Math.cos(theta);
+    const base1Idx = vertices.length;
+    vertices.push([finBaseX1, dirY * bodyRadius, dirZ * bodyRadius]);
+    const base2Idx = vertices.length;
+    vertices.push([finBaseX2, dirY * bodyRadius, dirZ * bodyRadius]);
+    const finTipIdx = vertices.length;
+    vertices.push([finTipX, dirY * (bodyRadius + finHeight), dirZ * (bodyRadius + finHeight)]);
+    edges.push([base1Idx, base2Idx]);
+    edges.push([base2Idx, finTipIdx]);
+    edges.push([finTipIdx, base1Idx]);
+  }
+
+  return { vertices, edges };
+}
+
+const ROCKET = generateRocket();
+
 const SHAPES = {
   sphere: { geometry: SPHERE, color: '#00ffff', shadow: 'rgba(0, 255, 255, 0.8)' },
-  tesseract: { geometry: TESSERACT, color: '#00ffff', shadow: 'rgba(0, 255, 255, 0.8)' }
+  tesseract: { geometry: TESSERACT, color: '#00ffff', shadow: 'rgba(0, 255, 255, 0.8)' },
+  rocket: { geometry: ROCKET, color: '#00ffff', shadow: 'rgba(0, 255, 255, 0.8)' }
 };
 
-// Ciclul de forme la palma deschisă: sferă -> cub -> ascuns -> sferă -> ...
-const OBJECT_CYCLE = ['sphere', 'tesseract', null];
+const OBJECT_CYCLE = ['sphere', 'tesseract', 'rocket', null];
 
 const GESTURE_HOLD_MS = 1000;
 const GRAB_RADIUS_MULT = 2.2;
