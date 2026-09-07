@@ -137,26 +137,34 @@ function generateRocket() {
   }
 
   const finCount = 4;
-  const finBaseX1 = -1.0 + 0.05;
-  const finBaseX2 = -1.0 - 0.35;
-  const finTipX = -1.0 - 0.05;
+  const finFrontX = -1.0 + 0.05;
+  const finBackX = -1.0 - 0.35;
   const finHeight = 0.55;
   for (let f = 0; f < finCount; f++) {
     const theta = (f / finCount) * Math.PI * 2;
     const dirY = Math.sin(theta);
     const dirZ = Math.cos(theta);
-    const base1Idx = vertices.length;
-    vertices.push([finBaseX1, dirY * bodyRadius, dirZ * bodyRadius]);
-    const base2Idx = vertices.length;
-    vertices.push([finBaseX2, dirY * bodyRadius, dirZ * bodyRadius]);
-    const finTipIdx = vertices.length;
-    vertices.push([finTipX, dirY * (bodyRadius + finHeight), dirZ * (bodyRadius + finHeight)]);
-    edges.push([base1Idx, base2Idx]);
-    edges.push([base2Idx, finTipIdx]);
-    edges.push([finTipIdx, base1Idx]);
+    const frontBottomIdx = vertices.length;
+    vertices.push([finFrontX, dirY * bodyRadius, dirZ * bodyRadius]);
+    const backBottomIdx = vertices.length;
+    vertices.push([finBackX, dirY * bodyRadius, dirZ * bodyRadius]);
+    const backTopIdx = vertices.length;
+    vertices.push([finBackX, dirY * (bodyRadius + finHeight), dirZ * (bodyRadius + finHeight)]);
+    edges.push([frontBottomIdx, backBottomIdx]);
+    edges.push([backBottomIdx, backTopIdx]);
+    edges.push([backTopIdx, frontBottomIdx]);
   }
 
-  return { vertices, edges };
+  const roll = 0.45;
+  const cosR = Math.cos(roll);
+  const sinR = Math.sin(roll);
+  const rolledVertices = vertices.map(([x, y, z]) => [
+    x,
+    y * cosR - z * sinR,
+    y * sinR + z * cosR
+  ]);
+
+  return { vertices: rolledVertices, edges };
 }
 
 const ROCKET = generateRocket();
