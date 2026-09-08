@@ -186,7 +186,58 @@ const MIN_THROW_SPEED = 0.05;
 const THROW_SPIN_FACTOR = 0.01;
 const EDGE_BOUNCE = 0.6;
 
-let cycleIndex = -1;
+const TRACK_MAX_DIST_FACTOR = 0.25;
+const TRACK_TIMEOUT_MS = 400;
+
+let nextTrackId = 1;
+let handTracks = [];
+
+function updateHandTracks(handsLandmarks, timestamp) {
+  const detections = handsLandmarks.map(landmarks => ({
+    x: landmarks[0].x * canvas.width,
+    y: landmarks[0].y * canvas.height
+  }));
+
+  handTracks = handTracks.filter(t => timestamp - t.lastSeen < TRACK_TIMEOUT_MS);
+
+  const maxDist = canvas.width * TRACK_MAX_DIST_FACTOR;
+  const pairs = [];
+  for (let ti = 0; ti < handTracks.length; ti++) {
+    for (let di = 0; di < detections.length; di++) {
+      const dist = Math.hypot(
+        handTracks[ti].x - detections[di].x,
+        handTracks[ti].y - detections[di].y
+      );
+      pairs.push({ ti, di, dist });
+    }
+  }
+  pairs.sort((a, b) => a.dist - b.dist);
+
+  const usedTrackIdx = new Set();
+  const usedDetectionIdx = new Set();
+  const assignments = new Array(detections.length).fill(null);
+
+  for (const pair of pairs) {
+    if (usedTrackIdx.has(pair.ti) || usedDetectionIdx.has(pair.di)) continue;
+    if (pair.dist > maxDist) continue;
+    usedTrackIdx.add(pair.ti);
+    usedDetectionIdx.add(pair.di);
+    assignments[pair.di] = handTracks[pair.ti].id;
+    handTracks[pair.ti].x = detections[pair.di].x;
+    handTracks[pair.ti].y = detections[pair.di].y;
+    handTracks[pair.ti].lastSeen = timestamp;
+  }
+
+  for (let di = 0; di < detections.length; di++) {
+    if (assignments[di] === null) {
+      const id = nextTrackId++;
+      handTracks.push({ id, x: detections[di].x, y: detections[di].y, lastSeen: timestamp });
+      assignments[di] = id;
+    }
+  }
+
+  return assignments;
+}
 
 const objectState = {
   active: false,
@@ -275,15 +326,11 @@ function computeHandRotation(landmarks) {
   return { rotationY: -rotationY };
 }
 
-function getHandLabel(handednesses, i) {
-  return handednesses[i]?.[0]?.categoryName || `Hand${i}`;
-}
-
-function getGestureState(label) {
-  if (!gestureState[label]) {
-    gestureState[label] = { palmOpen: false, palmOpenStart: 0, triggered: false, pinch: false };
+function getGestureState(id) {
+  if (!gestureState[id]) {
+    gestureState[id] = { palmOpen: false, palmOpenStart: 0, triggered: false, pinch: false };
   }
-  return gestureState[label];
+  return gestureState[id];
 }
 
 function rotatePoint([x, y, z], ry) {
@@ -349,8 +396,10 @@ function advanceObjectCycle(landmarks) {
   objectState.active = true;
 }
 
-function updateHandGesture(landmarks, label, timestamp) {
-  const state = getGestureState(label);
+let cycleIndex = -1;
+
+function updateHandGesture(landmarks, handId, timestamp) {
+  const state = getGestureState(handId);
 
   const threeFingers = isThreeFingerGesture(landmarks);
   if (threeFingers) {
@@ -375,7 +424,7 @@ function updateHandGesture(landmarks, label, timestamp) {
     if (pinching && !state.pinch && objectState.grabbedBy === null) {
       const d = Math.hypot(cx - objectState.x, cy - objectState.y);
       if (d < objectState.size * GRAB_RADIUS_MULT) {
-        objectState.grabbedBy = label;
+        objectState.grabbedBy = handId;
         objectState.grabOffsetX = objectState.x - cx;
         objectState.grabOffsetY = objectState.y - cy;
 
@@ -384,7 +433,7 @@ function updateHandGesture(landmarks, label, timestamp) {
       }
     }
 
-    if (pinching && objectState.grabbedBy === label) {
+    if (pinching && objectState.grabbedBy === handId) {
       const newX = cx + objectState.grabOffsetX;
       const newY = cy + objectState.grabOffsetY;
       const instVx = newX - objectState.x;
@@ -399,7 +448,7 @@ function updateHandGesture(landmarks, label, timestamp) {
       objectState.rotationY += (targetRotation.rotationY - objectState.rotationY) * ROTATION_SMOOTHING;
     }
 
-    if (!pinching && objectState.grabbedBy === label) {
+    if (!pinching && objectState.grabbedBy === handId) {
       objectState.grabbedBy = null;
     }
   }
@@ -422,9 +471,7 @@ function updateThrowPhysics() {
   objectState.rotationY += objectState.vx * THROW_SPIN_FACTOR;
   objectState.vx *= THROW_FRICTION;
   objectState.vy *= THROW_FRICTION;
-  objectState.rotationY += objectState.vx * THROW_SPIN_FACTOR;
-  objectState.vx *= THROW_FRICTION;
-  objectState.vy *= THROW_FRICTION;
+
   const margin = objectState.size;
   if (objectState.x < margin) {
     objectState.x = margin;
@@ -450,7 +497,9 @@ function detectLoop() {
   const drawingUtils = new DrawingUtils(ctx);
   const handResult = handLandmarker.detectForVideo(video, timestamp);
   const hands = handResult.landmarks || [];
-  const handednesses = handResult.handednesses || [];
+
+  const handIds = updateHandTracks(hands, timestamp);
+  const currentIds = new Set(handIds);
 
   for (let i = 0; i < hands.length; i++) {
     const landmarks = hands[i];
@@ -461,8 +510,11 @@ function detectLoop() {
     );
     drawingUtils.drawLandmarks(landmarks, { color: "#FF0000", radius: 4 });
 
-    const label = getHandLabel(handednesses, i);
-    updateHandGesture(landmarks, label, timestamp);
+    updateHandGesture(landmarks, handIds[i], timestamp);
+  }
+
+  if (objectState.grabbedBy !== null && !currentIds.has(objectState.grabbedBy)) {
+    objectState.grabbedBy = null;
   }
 
   updateThrowPhysics();
