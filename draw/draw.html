@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finger Draw</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="wrapper">
+        <video id="camera" autoplay playsinline muted></video>
+        <canvas id="ink"></canvas>
+        <canvas id="cursor"></canvas>
+    </div>
+
+    <div class="hud">
+        <span id="status">Desen: Oprit</span>
+        <button id="clearBtn">Clear</button>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
